@@ -20,7 +20,7 @@ void* mulmatriz(void* ptr){
 }
 
 int main(int argc,char*argv[]){
- double *A,*B,*C;
+ double *A,*B,*C;s
  int i,j,k;
  int check=1;
  double timetick;
