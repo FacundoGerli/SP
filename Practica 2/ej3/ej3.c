@@ -37,9 +37,6 @@ void *contOcurrencias(void* ptr){
     pthread_mutex_lock(&mutexOcurrencias);
     globalOcurrencias += localOcurrencias;
     pthread_mutex_unlock(&mutexOcurrencias);
-
-
-
 }
 int main(int argc,char*argv[]){
 
