@@ -9,24 +9,23 @@
   
 int N = 10, T = 1, longHilo = 0;
 double *A, *B, *C, *R, *BT,*resultMatriz;
-double minA = INT_MAX, minB = INT_MAX, maxA = -INT_MAX, maxB = -INT_MAX, promA = 0,promB = 0, escalar = 0;
+double minA = INT_MAX, minB = INT_MAX, maxA = INT_MIN, maxB = INT_MIN, promA = 0,promB = 0, escalar = 0;
 pthread_mutex_t mutex;
 pthread_barrier_t barrier;
 
 double dwalltime();
-void matmulblks(double *a, double *b, double *c, int n, int bs);
+void matmulblks(double *a, double *b, double *c, int n, int bs, int inicio, int fin);
 void blkmul(double *Rlk, double *bblk, double *cblk, int n, int bs);
 void initvalmat(double *mat, int n, double val, int transpose);
-void imprimirMatriz(double *matriz, int N);
-void minMaxProm(double *matriz, int N, double *min, double *max, double *prom);
-void transponer(double *matriz, int N, double *matrizT, int transpose);
+void transponerblks(double *matriz, double *matrizT, int blocksize, int inicio, int fin);
+
 void *job(void *arg){
     int id = *(int *) arg;
     int inicio = id * longHilo;
     int fin = inicio + longHilo;
 
-    if (id == T - 1) {
-        fin = N; 
+    if( id == T - 1){
+        fin = N;
     }
 
     double localSumA = 0, localSumB = 0, localMinA = 9999, localMaxA = -1, localMinB = 9999, localMaxB = -1;
@@ -54,6 +53,7 @@ void *job(void *arg){
             localSumB += posB;
         }
     }
+
     pthread_mutex_lock(&mutex);
     if(localMaxA > maxA){
         maxA = localMaxA;
@@ -70,6 +70,7 @@ void *job(void *arg){
     promA += localSumA;
     promB += localSumB;
     pthread_mutex_unlock(&mutex);
+
     pthread_barrier_wait(&barrier);
 
     if(id == 0){
@@ -77,8 +78,9 @@ void *job(void *arg){
         promB = promB / (N*N);
         escalar = (maxA *maxB - minA * minB) / (promA * promB);
     }
-    matmulblks(A, B, R, N, blockSize);
-    matmulblks(C, BT, resultMatriz, N, blockSize);
+    transponerblks(B,BT, blockSize, inicio, fin);
+    matmulblks(A, B, R, N, blockSize, inicio, fin);
+    matmulblks(C, BT, resultMatriz, N, blockSize, inicio, fin);
     pthread_barrier_wait(&barrier);
     
     for (int i = inicio; i < fin; i++){
@@ -118,7 +120,6 @@ int main(int argc, char *argv[]) {
     initvalmat(A, N, 1.0, 0);
     initvalmat(B, N, 1.0, 1);
     initvalmat(C, N, 1.0, 0); 
-    transponer(B, N, BT, 0);
     //Resultados
     initvalmat(R, N, 0, 0);
     initvalmat(resultMatriz, N, 0, 0);
@@ -126,13 +127,13 @@ int main(int argc, char *argv[]) {
     pthread_barrier_init(&barrier, NULL, T);
     pthread_mutex_init(&mutex, NULL);
 
+       // Iniciar contador tiempo
+    timetick = dwalltime();
+
     for (i = 0; i < T; i++){
         ids[i] = i;
         pthread_create(&threads[i], NULL, job, &ids[i]);
     }
-
-    // Iniciar contador tiempo
-    timetick = dwalltime();
 
     for(i=0; i <T; i++){
         pthread_join(threads[i], NULL);
@@ -165,18 +166,6 @@ double dwalltime() {
     return sec;
 }
 
-void imprimirMatriz(double *matriz, int N) {
-    int desplazamientoI;
-    printf("Matriz ->");
-    printf("\n");
-    for (int i = 0; i < N; i++) {
-        desplazamientoI = i * N;
-        for (int j = 0; j < N; j++) {
-            printf("|%.0f|", matriz[ desplazamientoI + j]);
-        }
-        printf("\n");
-    }
-}
 
 void initvalmat(double *mat, int n, double val, int transpose)
 {
@@ -202,76 +191,31 @@ void initvalmat(double *mat, int n, double val, int transpose)
 	  }
 	}
 }
-void minMaxProm(double *matriz, int N, double *min, double *max, double *prom){
-  int desplazamientoI;
-    *min = 100;
-    *max = -1;
-    *prom = 0;
- //Define la forma de recorrer la matriz de entrada
-        for (int i = 0; i<N; i++){
-          desplazamientoI = i * N;
-            for (int j=0; j<N; j++){
-                if(matriz[desplazamientoI + j] < *min){
-                    *min = matriz[desplazamientoI + j];
-                }
-                if(matriz[desplazamientoI + j] > *max){
-                    *max = matriz[desplazamientoI + j];
-                }
-                *prom += matriz[desplazamientoI + j];
-            }
-        }
-    
-    
-    *prom = *prom/(N*N);
-}
 
-void transponer(double *matriz, int N, double *matrizT, int transpose){
-    int desplazamientoBI;
-  //Define la forma de recorrer la matriz de entrada
-  //0 -> por fila, 1 -> por columna
-    if(transpose == 0){
-        for(int i = 0; i < N; i += blockSize){
-            for(int j = 0; j < N; j += blockSize){
-
-                for(int bi = 0; bi < blockSize && (i+bi) < N; bi++){
-                  desplazamientoBI = i+bi;
-                    for(int bj = 0; bj <blockSize && (j+bj) < N; bj++){
-                        matrizT[(j+bj) * N + (desplazamientoBI)] = matriz[(desplazamientoBI) * N + (j+bj)];
-                    }
-                }
+void transponerblks(double *matriz, double *matrizT, int bs, int inicio, int fin){
+    int i, j, desplazamientoBI, bj;
+    for (i = inicio; i < fin; i += bs){
+        for(j = 0; j < N; j += bs){
+          for (desplazamientoBI = 0; desplazamientoBI < bs && (i + desplazamientoBI) < N; desplazamientoBI++){
+            for(bj = 0; bj < bs && (j + bj) < N; bj++){
+                matrizT[(j + bj) * N + (desplazamientoBI + i)] = matriz[(desplazamientoBI + i) * N + (j + bj)];
             }
+          }
         }
     }
-    else {
-        for(int i = 0; i < N; i += blockSize){
-            for(int j = 0; j < N; j += blockSize){
-
-                for(int bi = 0; bi < blockSize && (i+bi) < N; bi++){
-                  desplazamientoBI = i+bi;
-                    for(int bj = 0; bj <blockSize && (j+bj) < N; bj++){
-                        matrizT[(desplazamientoBI) * N + (j+bj)] = matriz[(j+bj)* N + (desplazamientoBI)];
-                    }
-                }
-            }
-        }
-
     }
 
-}
 /* Multiply square matrices, blocked version */
-void matmulblks(double *a, double *b, double *c, int n, int bs)
+void matmulblks(double *a, double *b, double *c, int n, int bs, int inicio, int fin)
 {
   int i, j, k, desplazamientoI, desplazamientoJ;    /* Guess what... */
-
-  /* Init matrix c, just in case */  
-  initvalmat(c, n, 0.0, 0);
   
-  for (i = 0; i < n; i += bs)
+  for (i = inicio; i < fin; i += bs)
   {
-    desplazamientoI = i * N;
+    desplazamientoI = i * n;
     for (j = 0; j < n; j += bs)
     {
-      desplazamientoJ = j * N;
+      desplazamientoJ = j * n;
       for  (k = 0; k < n; k += bs)
       {
         blkmul(&a[desplazamientoI + k], &b[desplazamientoJ + k], &c[desplazamientoI + j], n, bs);
@@ -290,11 +234,11 @@ void blkmul(double *Rlk, double *bblk, double *cblk, int n, int bs)
 
   for (i = 0; i < bs; i++)
   {
-    desplazamientoI = i * N;
+    desplazamientoI = i * n;
     for (j = 0; j < bs; j++)
     {
       suma = 0;
-      desplazamientoJ = j * N;
+      desplazamientoJ = j * n;
       for  (k = 0; k < bs; k++)
       {
         suma += Rlk[desplazamientoI + k] * bblk[desplazamientoJ + k];

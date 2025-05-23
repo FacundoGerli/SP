@@ -162,14 +162,13 @@ int main(int argc, char *argv[])
     pthread_mutex_init(&mutexCalc, NULL);
     pthread_barrier_init(&barrier, NULL, T);
 
+    timetick = dwalltime();
     // Crea los hilos
     for (i = 0; i < T; i++)
     {
         ids[i] = i;
         pthread_create(&threads[i], &attr, worker, &ids[i]);
     }
-
-    timetick = dwalltime();
 
     for (i = 0; i < T; i++)
     {
